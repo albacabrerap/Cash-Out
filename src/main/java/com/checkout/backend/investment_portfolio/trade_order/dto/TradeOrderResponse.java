@@ -22,6 +22,8 @@ public class TradeOrderResponse {
 
     private Long id;
 
+    private Long assetId;
+
     private String symbol;
 
     private OrderSide side;

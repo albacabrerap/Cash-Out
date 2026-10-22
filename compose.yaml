@@ -119,5 +119,10 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
 
+      # Datos de mercado. Opcionales: sin ellas el backend arranca igual y lo que
+      # dependa de Alpaca responde 503. Nunca van al frontend.
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+
 volumes:
   checkout-postgres-data:

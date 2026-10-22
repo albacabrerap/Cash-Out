@@ -8,6 +8,7 @@ import lombok.*;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
@@ -55,6 +56,16 @@ public class AssetQuote {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /** Day change in percent with four decimals, or null when there is no previous close to compare. */
+    public static BigDecimal percentChange(BigDecimal previous, BigDecimal current) {
+        if (previous == null || previous.signum() == 0 || current == null) {
+            return null;
+        }
+        return current.subtract(previous)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(previous, 4, RoundingMode.HALF_UP);
+    }
 
     /** An order placed against a stale price must be rejected, not guessed. */
     public boolean isStale(Duration maxAge) {

@@ -1,5 +1,7 @@
 package com.checkout.backend.projection.controller;
 
+import com.checkout.backend.projection.dto.ProjectionPreviewRequest;
+import com.checkout.backend.projection.dto.ProjectionPreviewResponse;
 import com.checkout.backend.projection.dto.ProjectionRequest;
 import com.checkout.backend.projection.dto.ProjectionResponse;
 import com.checkout.backend.projection.service.ProjectionService;
@@ -10,6 +12,7 @@ import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,6 +44,17 @@ public class ProjectionController {
     @GetMapping
     public ResponseEntity<List<ProjectionResponse>> list() {
         return ResponseEntity.ok(projectionService.list(currentUser.requireCurrentUser()));
+    }
+
+    /**
+     * GET /api/v1/projections/preview?initialCapital=&monthlyContribution=&annualRate=&periods=
+     *
+     * Calcula un escenario sin guardarlo, para la calculadora de la web: lo que
+     * se ve antes de guardar sale de la misma formula que lo guardado.
+     */
+    @GetMapping("/preview")
+    public ResponseEntity<ProjectionPreviewResponse> preview(@Valid @ModelAttribute ProjectionPreviewRequest request) {
+        return ResponseEntity.ok(projectionService.preview(request));
     }
 
     /** GET /api/v1/projections/{id} */

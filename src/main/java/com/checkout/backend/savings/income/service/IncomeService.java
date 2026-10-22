@@ -1,19 +1,25 @@
 package com.checkout.backend.savings.income.service;
 
-import com.checkout.backend.exceptions.InvalidRequestException;
 import com.checkout.backend.exceptions.ResourceNotFoundException;
 import com.checkout.backend.savings.income.dto.IncomeRequest;
 import com.checkout.backend.savings.income.dto.IncomeResponse;
 import com.checkout.backend.savings.income.model.Income;
 import com.checkout.backend.savings.income.repository.IncomeRepository;
+import com.checkout.backend.savings.income.repository.IncomeSpecifications;
 import com.checkout.backend.savings.service.SavingsService;
 import com.checkout.backend.user.model.User;
+import com.checkout.backend.web.DateRange;
 import com.checkout.backend.web.PageResponse;
+import com.checkout.backend.web.SearchTerm;
+import com.checkout.backend.web.SortWhitelist;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +32,12 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class IncomeService {
+
+    /** Columnas por las que el listado se puede ordenar con ?sort=campo,dir. */
+    private static final List<String> SORTABLE = List.of("date", "amount", "source");
+
+    /** El orden de siempre: el ingreso mas reciente primero. */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "date");
 
     private final IncomeRepository incomeRepository;
     private final SavingsService savingsService;
@@ -63,29 +75,27 @@ public class IncomeService {
     }
 
     /**
-     * Ingresos del usuario, del mas reciente al mas antiguo.
+     * Ingresos del usuario, con rango de fechas y busqueda opcionales.
      *
-     * El rango es opcional pero se pide completo: con un solo extremo no esta
-     * claro si el otro es el inicio de los tiempos o el dia de hoy, y cada
-     * cliente asumiria una cosa distinta.
+     * Sin orden explicito van del mas reciente al mas antiguo, como siempre. El
+     * rango se pide completo y ordenado; las reglas viven en DateRange.
      */
     @Transactional(readOnly = true)
     public PageResponse<IncomeResponse> list(User user, LocalDate from, LocalDate to,
-                                             Pageable pageable) {
-        Page<Income> incomes;
+                                             String search, Pageable pageable) {
+        DateRange.validate(from, to);
 
-        if (from == null && to == null) {
-            incomes = incomeRepository.findByUserIdOrderByDateDesc(user.getId(), pageable);
-        } else if (from == null || to == null) {
-            throw new InvalidRequestException(
-                    "Para filtrar por fecha hay que enviar 'from' y 'to', no solo uno.");
-        } else if (from.isAfter(to)) {
-            throw new InvalidRequestException("'from' no puede ser posterior a 'to'.");
-        } else {
-            incomes = incomeRepository.findByUserIdAndDateBetweenOrderByDateDesc(
-                    user.getId(), from, to, pageable);
+        Specification<Income> spec = IncomeSpecifications.ownedBy(user.getId());
+        if (from != null) {
+            spec = spec.and(IncomeSpecifications.dateBetween(from, to));
+        }
+        String pattern = SearchTerm.toLikePattern(search);
+        if (pattern != null) {
+            spec = spec.and(IncomeSpecifications.sourceOrDescriptionMatches(pattern));
         }
 
+        Pageable page = SortWhitelist.restrict(pageable, SORTABLE, DEFAULT_SORT);
+        Page<Income> incomes = incomeRepository.findAll(spec, page);
         return PageResponse.of(incomes.map(income -> mapper.map(income, IncomeResponse.class)));
     }
 

@@ -130,9 +130,13 @@ public class TradeOrderService {
         // que haya que devolverle como un 400: son el resultado de la orden. Se
         // guarda rechazada con su motivo, y el usuario la ve en su historial igual
         // que las que si salieron.
-        Optional<String> rejection = request.getSide() == OrderSide.BUY
-                ? walletService.reasonToRejectSpending(user, tokens)
-                : portfolioService.reasonToRejectSell(user, asset, request.getQuantity());
+        // Una orden que redondea a cero fichas no puede asentarse en el libro (un
+        // movimiento de cero no existe), asi que se rechaza aqui con su motivo.
+        Optional<String> rejection = tokens.signum() == 0
+                ? Optional.of("La orden vale menos de 0.01 fichas. Aumenta la cantidad.")
+                : request.getSide() == OrderSide.BUY
+                        ? walletService.reasonToRejectSpending(user, tokens)
+                        : portfolioService.reasonToRejectSell(user, asset, request.getQuantity());
 
         if (rejection.isPresent()) {
             order.setStatus(OrderStatus.REJECTED);

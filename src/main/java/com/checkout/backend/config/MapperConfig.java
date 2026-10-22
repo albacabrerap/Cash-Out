@@ -68,13 +68,16 @@ public class MapperConfig {
 
         modelMapper.typeMap(PortfolioPosition.class, PositionResponse.class)
                 .addMappings(map -> {
+                    map.map(src -> src.getAsset().getId(), PositionResponse::setAssetId);
                     map.map(src -> src.getAsset().getSymbol(), PositionResponse::setSymbol);
                     map.map(src -> src.getAsset().getName(), PositionResponse::setAssetName);
                 });
 
         modelMapper.typeMap(TradeOrder.class, TradeOrderResponse.class)
-                .addMappings(map ->
-                        map.map(src -> src.getAsset().getSymbol(), TradeOrderResponse::setSymbol));
+                .addMappings(map -> {
+                    map.map(src -> src.getAsset().getId(), TradeOrderResponse::setAssetId);
+                    map.map(src -> src.getAsset().getSymbol(), TradeOrderResponse::setSymbol);
+                });
 
         modelMapper.typeMap(MinigameSession.class, MinigameSessionResponse.class)
                 .addMappings(map ->

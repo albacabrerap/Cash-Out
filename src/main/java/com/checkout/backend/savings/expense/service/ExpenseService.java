@@ -1,19 +1,25 @@
 package com.checkout.backend.savings.expense.service;
 
-import com.checkout.backend.exceptions.InvalidRequestException;
 import com.checkout.backend.exceptions.ResourceNotFoundException;
 import com.checkout.backend.savings.expense.dto.ExpenseRequest;
 import com.checkout.backend.savings.expense.dto.ExpenseResponse;
 import com.checkout.backend.savings.expense.model.Expense;
 import com.checkout.backend.savings.expense.model.ExpenseCategory;
 import com.checkout.backend.savings.expense.repository.ExpenseRepository;
+import com.checkout.backend.savings.expense.repository.ExpenseSpecifications;
 import com.checkout.backend.savings.service.SavingsService;
 import com.checkout.backend.user.model.User;
+import com.checkout.backend.web.DateRange;
 import com.checkout.backend.web.PageResponse;
+import com.checkout.backend.web.SearchTerm;
+import com.checkout.backend.web.SortWhitelist;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ExpenseService {
+
+    /** Columnas por las que el listado se puede ordenar con ?sort=campo,dir. */
+    private static final List<String> SORTABLE = List.of("date", "amount", "category");
+
+    /** El orden de siempre: el gasto mas reciente primero. */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "date");
 
     private final ExpenseRepository expenseRepository;
     private final SavingsService savingsService;
@@ -59,36 +71,37 @@ public class ExpenseService {
     }
 
     /**
-     * Gastos del usuario, opcionalmente por rango de fechas o por categoria.
+     * Gastos del usuario, con filtros opcionales que se combinan entre si.
      *
-     * Los dos filtros no se combinan: hacerlo multiplicaria los metodos del
-     * repositorio por cada combinacion. Cuando haga falta, el paso siguiente es
-     * una Specification, no un metodo mas.
+     * Rango de fechas, categoria y busqueda pueden ir juntos o por separado, y
+     * todos conviven con la paginacion y el orden. Antes categoria y fechas eran
+     * excluyentes —un 400 si se mandaban ambos— porque habia un metodo de
+     * repositorio por combinacion; con Specification ese limite desaparece.
+     *
+     * Lo que no cambia: el rango se pide completo y ordenado, por la razon que
+     * da IncomeService, y sin orden explicito el listado va de la fecha mas
+     * reciente a la mas antigua.
      */
     @Transactional(readOnly = true)
     public PageResponse<ExpenseResponse> list(User user, LocalDate from, LocalDate to,
-                                              ExpenseCategory category, Pageable pageable) {
-        if (category != null && (from != null || to != null)) {
-            throw new InvalidRequestException(
-                    "Filtra por categoria o por rango de fechas, no por ambos a la vez.");
-        }
+                                              ExpenseCategory category, String search,
+                                              Pageable pageable) {
+        DateRange.validate(from, to);
 
-        Page<Expense> expenses;
+        Specification<Expense> spec = ExpenseSpecifications.ownedBy(user.getId());
+        if (from != null) {
+            spec = spec.and(ExpenseSpecifications.dateBetween(from, to));
+        }
         if (category != null) {
-            expenses = expenseRepository.findByUserIdAndCategoryOrderByDateDesc(
-                    user.getId(), category, pageable);
-        } else if (from == null && to == null) {
-            expenses = expenseRepository.findByUserIdOrderByDateDesc(user.getId(), pageable);
-        } else if (from == null || to == null) {
-            throw new InvalidRequestException(
-                    "Para filtrar por fecha hay que enviar 'from' y 'to', no solo uno.");
-        } else if (from.isAfter(to)) {
-            throw new InvalidRequestException("'from' no puede ser posterior a 'to'.");
-        } else {
-            expenses = expenseRepository.findByUserIdAndDateBetweenOrderByDateDesc(
-                    user.getId(), from, to, pageable);
+            spec = spec.and(ExpenseSpecifications.inCategory(category));
+        }
+        String pattern = SearchTerm.toLikePattern(search);
+        if (pattern != null) {
+            spec = spec.and(ExpenseSpecifications.descriptionMatches(pattern));
         }
 
+        Pageable page = SortWhitelist.restrict(pageable, SORTABLE, DEFAULT_SORT);
+        Page<Expense> expenses = expenseRepository.findAll(spec, page);
         return PageResponse.of(expenses.map(e -> mapper.map(e, ExpenseResponse.class)));
     }
 

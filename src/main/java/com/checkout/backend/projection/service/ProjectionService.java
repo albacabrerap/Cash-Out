@@ -1,6 +1,8 @@
 package com.checkout.backend.projection.service;
 
 import com.checkout.backend.exceptions.ResourceNotFoundException;
+import com.checkout.backend.projection.dto.ProjectionPreviewRequest;
+import com.checkout.backend.projection.dto.ProjectionPreviewResponse;
 import com.checkout.backend.projection.dto.ProjectionRequest;
 import com.checkout.backend.projection.dto.ProjectionResponse;
 import com.checkout.backend.projection.model.Projection;
@@ -25,8 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
  * abre contra el simple a los mismos anos.
  *
  * Los periodos son meses, por el @Max(600) del modelo, que son cincuenta anos.
- * La tasa que llega es anual y esta entre 0 y 1, asi que el paso a mensual es
- * una division entre doce.
+ * La tasa que llega es una TEA entre 0 y 1. Los dos escenarios usan la misma
+ * tasa mensual, (1+TEA)^(1/12) - 1, para que lo unico que los distinga sea
+ * reinvertir o no los intereses. Dividir la TEA entre doce la trataria como
+ * nominal: con 10% el compuesto daria 10.47% al anio.
  */
 @Service
 public class ProjectionService {
@@ -34,7 +38,7 @@ public class ProjectionService {
     /** Precision de trabajo. Los resultados se redondean a dos decimales al final. */
     private static final MathContext MC = new MathContext(20, RoundingMode.HALF_UP);
 
-    private static final BigDecimal MONTHS_PER_YEAR = BigDecimal.valueOf(12);
+    private static final int MONTHS_PER_YEAR = 12;
 
     private final ProjectionRepository projectionRepository;
     private final SavingsGoalService goalService;
@@ -71,10 +75,23 @@ public class ProjectionService {
                 .periods(request.getPeriods())
                 .build();
 
-        projection.setSimpleFinalAmount(simpleFinalAmount(projection));
-        projection.setCompoundFinalAmount(compoundFinalAmount(projection));
+        projection.setSimpleFinalAmount(simpleFinalAmount(projection.getInitialCapital(),
+                projection.getMonthlyContribution(), projection.getAnnualRate(), projection.getPeriods()));
+        projection.setCompoundFinalAmount(compoundFinalAmount(projection.getInitialCapital(),
+                projection.getMonthlyContribution(), projection.getAnnualRate(), projection.getPeriods()));
 
         return toResponse(projectionRepository.save(projection));
+    }
+
+    /** El mismo calculo que create, sin guardar nada. */
+    public ProjectionPreviewResponse preview(ProjectionPreviewRequest request) {
+        BigDecimal simple = simpleFinalAmount(request.initialCapital(), request.monthlyContribution(),
+                request.annualRate(), request.periods());
+        BigDecimal compound = compoundFinalAmount(request.initialCapital(), request.monthlyContribution(),
+                request.annualRate(), request.periods());
+        return new ProjectionPreviewResponse(
+                totalContributed(request.initialCapital(), request.monthlyContribution(), request.periods()),
+                simple, compound, scale(compound.subtract(simple)));
     }
 
     @Transactional(readOnly = true)
@@ -116,11 +133,11 @@ public class ProjectionService {
      * acumula solo desde el mes en que entra, asi que el primero gana intereses
      * por n-1 meses y el ultimo por ninguno.
      */
-    private static BigDecimal simpleFinalAmount(Projection projection) {
-        BigDecimal monthlyRate = monthlyRate(projection);
-        int periods = projection.getPeriods();
+    private static BigDecimal simpleFinalAmount(BigDecimal initialCapital, BigDecimal monthlyContribution,
+                                                BigDecimal annualRate, int periods) {
+        BigDecimal monthlyRate = monthlyRate(annualRate);
 
-        BigDecimal fromCapital = projection.getInitialCapital()
+        BigDecimal fromCapital = initialCapital
                 .multiply(BigDecimal.ONE.add(monthlyRate.multiply(BigDecimal.valueOf(periods), MC)), MC);
 
         // Suma de los meses que acumula cada aporte: (n-1) + (n-2) + ... + 0,
@@ -128,9 +145,9 @@ public class ProjectionService {
         // periodos la diferencia en precision y en tiempo no es despreciable.
         BigDecimal accruedMonths = BigDecimal.valueOf((long) periods * (periods - 1) / 2);
 
-        BigDecimal fromContributions = projection.getMonthlyContribution()
+        BigDecimal fromContributions = monthlyContribution
                 .multiply(BigDecimal.valueOf(periods), MC)
-                .add(projection.getMonthlyContribution().multiply(monthlyRate, MC)
+                .add(monthlyContribution.multiply(monthlyRate, MC)
                         .multiply(accruedMonths, MC), MC);
 
         return scale(fromCapital.add(fromContributions, MC));
@@ -146,26 +163,45 @@ public class ProjectionService {
      * correcto es simplemente la suma de los aportes: se trata aparte en vez de
      * dejar que reviente.
      */
-    private static BigDecimal compoundFinalAmount(Projection projection) {
-        BigDecimal monthlyRate = monthlyRate(projection);
-        int periods = projection.getPeriods();
+    private static BigDecimal compoundFinalAmount(BigDecimal initialCapital, BigDecimal monthlyContribution,
+                                                  BigDecimal annualRate, int periods) {
+        BigDecimal monthlyRate = monthlyRate(annualRate);
 
         if (monthlyRate.signum() == 0) {
-            return scale(projection.getInitialCapital()
-                    .add(projection.getMonthlyContribution().multiply(BigDecimal.valueOf(periods), MC), MC));
+            return totalContributed(initialCapital, monthlyContribution, periods);
         }
 
         BigDecimal growth = BigDecimal.ONE.add(monthlyRate).pow(periods, MC);
 
-        BigDecimal fromCapital = projection.getInitialCapital().multiply(growth, MC);
-        BigDecimal fromContributions = projection.getMonthlyContribution()
+        BigDecimal fromCapital = initialCapital.multiply(growth, MC);
+        BigDecimal fromContributions = monthlyContribution
                 .multiply(growth.subtract(BigDecimal.ONE, MC).divide(monthlyRate, MC), MC);
 
         return scale(fromCapital.add(fromContributions, MC));
     }
 
-    private static BigDecimal monthlyRate(Projection projection) {
-        return projection.getAnnualRate().divide(MONTHS_PER_YEAR, MC);
+    private static BigDecimal monthlyRate(BigDecimal annualRate) {
+        return twelfthRoot(BigDecimal.ONE.add(annualRate)).subtract(BigDecimal.ONE, MC);
+    }
+
+    private static BigDecimal totalContributed(BigDecimal initialCapital, BigDecimal monthlyContribution, int periods) {
+        return scale(initialCapital.add(monthlyContribution.multiply(BigDecimal.valueOf(periods), MC), MC));
+    }
+
+    /**
+     * BigDecimal no trae raices de indice arbitrario. Se parte de la estimacion
+     * en double, que ya tiene unas 15 cifras, y Newton duplica las cifras
+     * correctas en cada paso: con dos pasos se pasa de las 20 de MC.
+     */
+    private static BigDecimal twelfthRoot(BigDecimal value) {
+        BigDecimal root = BigDecimal.valueOf(Math.pow(value.doubleValue(), 1.0 / MONTHS_PER_YEAR));
+        BigDecimal index = BigDecimal.valueOf(MONTHS_PER_YEAR);
+        for (int step = 0; step < 2; step++) {
+            BigDecimal power = root.pow(MONTHS_PER_YEAR - 1, MC);
+            BigDecimal excess = power.multiply(root, MC).subtract(value, MC);
+            root = root.subtract(excess.divide(index.multiply(power, MC), MC), MC);
+        }
+        return root;
     }
 
     private static BigDecimal scale(BigDecimal value) {
@@ -180,9 +216,8 @@ public class ProjectionService {
     private ProjectionResponse toResponse(Projection projection) {
         ProjectionResponse response = mapper.map(projection, ProjectionResponse.class);
 
-        response.setTotalContributed(scale(projection.getInitialCapital()
-                .add(projection.getMonthlyContribution()
-                        .multiply(BigDecimal.valueOf(projection.getPeriods()), MC), MC)));
+        response.setTotalContributed(totalContributed(projection.getInitialCapital(),
+                projection.getMonthlyContribution(), projection.getPeriods()));
 
         response.setDifference(scale(projection.getCompoundFinalAmount()
                 .subtract(projection.getSimpleFinalAmount())));

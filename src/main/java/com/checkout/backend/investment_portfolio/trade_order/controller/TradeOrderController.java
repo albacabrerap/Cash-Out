@@ -3,6 +3,7 @@ package com.checkout.backend.investment_portfolio.trade_order.controller;
 import com.checkout.backend.investment_portfolio.trade_order.dto.TradeOrderRequest;
 import com.checkout.backend.investment_portfolio.trade_order.dto.TradeOrderResponse;
 import com.checkout.backend.investment_portfolio.trade_order.service.TradeOrderService;
+import com.checkout.backend.market.service.MarketQuoteService;
 import com.checkout.backend.user.service.CurrentUserProvider;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -36,11 +37,14 @@ public class TradeOrderController {
 
     private final TradeOrderService orderService;
     private final CurrentUserProvider currentUser;
+    private final MarketQuoteService marketQuotes;
 
     public TradeOrderController(TradeOrderService orderService,
-                                CurrentUserProvider currentUser) {
+                                CurrentUserProvider currentUser,
+                                MarketQuoteService marketQuotes) {
         this.orderService = orderService;
         this.currentUser = currentUser;
+        this.marketQuotes = marketQuotes;
     }
 
     /** GET /api/v1/orders */
@@ -68,6 +72,9 @@ public class TradeOrderController {
      */
     @PostMapping
     public ResponseEntity<TradeOrderResponse> place(@Valid @RequestBody TradeOrderRequest request) {
+        // El precio se refresca aqui, antes de abrir la transaccion de la orden:
+        // esperar la red con la base tomada bloquearia la billetera del usuario.
+        marketQuotes.refreshIfStale(request.getAssetId());
         TradeOrderResponse placed = orderService.place(currentUser.requireCurrentUser(), request);
 
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()

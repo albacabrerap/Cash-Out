@@ -26,7 +26,7 @@ public class AssetRequest {
     private String symbol;
 
     @NotBlank
-    @Size(max = 120)
+    @Size(max = 255)
     private String name;
 
     @NotNull

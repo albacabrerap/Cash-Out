@@ -41,19 +41,30 @@ public class ExpenseController {
     }
 
     /**
-     * GET /api/v1/expenses?category=FOOD o ?from=...&to=...
+     * GET /api/v1/expenses?from=&to=&category=&search=&page=&size=&sort=
      *
-     * Una categoria que no existe en el enum da 400 en el binding, con el nombre
-     * del parametro y el valor recibido en el mensaje.
+     * Todos los filtros son opcionales y se combinan entre si:
+     *
+     * <ul>
+     *   <li>{@code from} y {@code to}: rango de fechas inclusivo, los dos o
+     *       ninguno.</li>
+     *   <li>{@code category}: un valor de ExpenseCategory. Uno que no existe da
+     *       400 en el binding, con el parametro y el valor en el mensaje.</li>
+     *   <li>{@code search}: texto que debe aparecer en la descripcion, sin
+     *       distinguir mayusculas. Hasta 100 caracteres.</li>
+     *   <li>{@code sort}: {@code date}, {@code amount} o {@code category}, con
+     *       {@code ,asc} o {@code ,desc}. Por defecto, fecha descendente.</li>
+     * </ul>
      */
     @GetMapping
     public ResponseEntity<PageResponse<ExpenseResponse>> list(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) ExpenseCategory category,
+            @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(expenseService.list(
-                currentUser.requireCurrentUser(), from, to, category, pageable));
+                currentUser.requireCurrentUser(), from, to, category, search, pageable));
     }
 
     /** GET /api/v1/expenses/{id} */

@@ -36,4 +36,7 @@ public class SavingsGoalResponse {
 
     private LocalDateTime completedAt;
 
+    /** Junto con deadline dice que parte del plazo ya paso: la web compara eso con el avance. */
+    private LocalDateTime createdAt;
+
 }

@@ -3,6 +3,8 @@ package com.checkout.backend.investment_portfolio.controller;
 import com.checkout.backend.investment_portfolio.dto.PortfolioResponse;
 import com.checkout.backend.investment_portfolio.position.dto.PositionResponse;
 import com.checkout.backend.investment_portfolio.service.PortfolioService;
+import com.checkout.backend.market.service.MarketQuoteService;
+import com.checkout.backend.user.model.User;
 import com.checkout.backend.user.service.CurrentUserProvider;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -26,11 +28,14 @@ public class PortfolioController {
 
     private final PortfolioService portfolioService;
     private final CurrentUserProvider currentUser;
+    private final MarketQuoteService marketQuotes;
 
     public PortfolioController(PortfolioService portfolioService,
-                               CurrentUserProvider currentUser) {
+                               CurrentUserProvider currentUser,
+                               MarketQuoteService marketQuotes) {
         this.portfolioService = portfolioService;
         this.currentUser = currentUser;
+        this.marketQuotes = marketQuotes;
     }
 
     /**
@@ -41,7 +46,10 @@ public class PortfolioController {
      */
     @GetMapping
     public ResponseEntity<PortfolioResponse> getPortfolio() {
-        return ResponseEntity.ok(portfolioService.getSummary(currentUser.requireCurrentUser()));
+        User user = currentUser.requireCurrentUser();
+        // Fuera de la transaccion de la valoracion: no se espera a la red con la base tomada.
+        marketQuotes.refreshStale(portfolioService.positionAssetIds(user));
+        return ResponseEntity.ok(portfolioService.getSummary(user));
     }
 
     /**
@@ -51,7 +59,9 @@ public class PortfolioController {
      */
     @GetMapping("/positions")
     public ResponseEntity<List<PositionResponse>> listPositions() {
-        return ResponseEntity.ok(portfolioService.listPositions(currentUser.requireCurrentUser()));
+        User user = currentUser.requireCurrentUser();
+        marketQuotes.refreshStale(portfolioService.positionAssetIds(user));
+        return ResponseEntity.ok(portfolioService.listPositions(user));
     }
 
 }

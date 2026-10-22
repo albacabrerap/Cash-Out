@@ -95,6 +95,17 @@ public class PortfolioService {
         return response;
     }
 
+    /** Los activos en los que el usuario tiene posicion, para refrescar sus precios antes de valorar. */
+    @Transactional(readOnly = true)
+    public List<Long> positionAssetIds(User user) {
+        return portfolioRepository.findByUserId(user.getId())
+                .map(portfolio -> positionRepository.findByPortfolioId(portfolio.getId()).stream()
+                        .map(position -> position.getAsset().getId())
+                        .distinct()
+                        .toList())
+                .orElse(List.of());
+    }
+
     @Transactional
     public List<PositionResponse> listPositions(User user) {
         return valuePositions(positionRepository.findByPortfolioId(getOrCreate(user).getId()));

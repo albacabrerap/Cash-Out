@@ -4,5 +4,8 @@ public enum TokenReason {
     GOAL_COMPLETED,
     MINIGAME,
     INVESTMENT,
-    ADJUSTMENT
+    ADJUSTMENT,
+    RACE_ENTRY,
+    RACE_PRIZE,
+    RACE_REFUND
 }
