@@ -40,20 +40,25 @@ public class IncomeController {
     }
 
     /**
-     * GET /api/v1/incomes?from=2026-01-01&to=2026-03-31
+     * GET /api/v1/incomes?from=2026-01-01&to=2026-03-31&search=&sort=
      *
      * El rango va en query params y no en la ruta porque filtra una coleccion
      * que ya existe; no nombra un recurso distinto. @DateTimeFormat fija el
      * formato ISO, de modo que una fecha mal escrita da 400 en el binding en vez
      * de depender del locale del servidor.
+     *
+     * {@code search} busca en la fuente y en la descripcion, sin distinguir
+     * mayusculas. {@code sort} acepta {@code date}, {@code amount} o
+     * {@code source}; por defecto, fecha descendente.
      */
     @GetMapping
     public ResponseEntity<PageResponse<IncomeResponse>> list(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(
-                incomeService.list(currentUser.requireCurrentUser(), from, to, pageable));
+                incomeService.list(currentUser.requireCurrentUser(), from, to, search, pageable));
     }
 
     /** GET /api/v1/incomes/{id} */

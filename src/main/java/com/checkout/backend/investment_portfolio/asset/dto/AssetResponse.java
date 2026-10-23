@@ -1,5 +1,6 @@
 package com.checkout.backend.investment_portfolio.asset.dto;
 
+import com.checkout.backend.investment_portfolio.asset.model.AssetSource;
 import com.checkout.backend.investment_portfolio.asset.model.AssetType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,5 +26,9 @@ public class AssetResponse {
     private String currency;
 
     private Boolean active;
+
+    private AssetSource source;
+
+    private String exchange;
 
 }

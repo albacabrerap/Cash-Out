@@ -1,21 +1,30 @@
 package com.checkout.backend.user.controller;
 
 import com.checkout.backend.user.dto.ChangePasswordRequest;
+import com.checkout.backend.user.dto.UpdateRolesRequest;
+import com.checkout.backend.user.dto.UpdateStatusRequest;
 import com.checkout.backend.user.dto.UpdateUserRequest;
 import com.checkout.backend.user.dto.UserResponse;
+import com.checkout.backend.user.service.AvatarService;
+import com.checkout.backend.user.service.AvatarService.Avatar;
 import com.checkout.backend.user.service.CurrentUserProvider;
 import com.checkout.backend.user.service.UserService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * La cuenta del usuario autenticado.
@@ -30,10 +39,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
+    private final AvatarService avatarService;
     private final CurrentUserProvider currentUser;
 
-    public UserController(UserService userService, CurrentUserProvider currentUser) {
+    public UserController(UserService userService, AvatarService avatarService, CurrentUserProvider currentUser) {
         this.userService = userService;
+        this.avatarService = avatarService;
         this.currentUser = currentUser;
     }
 
@@ -84,6 +95,32 @@ public class UserController {
         return ResponseEntity.noContent().build();
     }
 
+    /** PUT /api/v1/users/me/avatar, multipart con la imagen en "file". Devuelve la cuenta con la foto nueva. */
+    @PutMapping(path = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<UserResponse> replaceAvatar(@RequestParam("file") MultipartFile file) {
+        return ResponseEntity.ok(avatarService.replace(currentUser.requireCurrentUser(), file));
+    }
+
+    @DeleteMapping("/me/avatar")
+    public ResponseEntity<UserResponse> removeAvatar() {
+        return ResponseEntity.ok(avatarService.remove(currentUser.requireCurrentUser()));
+    }
+
+    /**
+     * GET /api/v1/users/me/avatar
+     *
+     * Pide sesion, asi que la web no puede ponerla en un img: la descarga con su
+     * token y la muestra desde memoria. Privada y sin cache compartida.
+     */
+    @GetMapping("/me/avatar")
+    public ResponseEntity<byte[]> avatar() {
+        Avatar avatar = avatarService.find(currentUser.requireCurrentUser());
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(avatar.contentType()))
+                .cacheControl(CacheControl.noCache().cachePrivate())
+                .body(avatar.data());
+    }
+
     /**
      * GET /api/v1/users
      *
@@ -100,6 +137,34 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserResponse>> listAll() {
         return ResponseEntity.ok(userService.listAll());
+    }
+
+    /**
+     * PUT /api/v1/users/{id}/roles
+     *
+     * Reservado a ADMIN y nunca sobre la propia cuenta. Devuelve la cuenta con
+     * sus roles nuevos; el usuario los ve al renovar su sesion.
+     */
+    @PutMapping("/{id}/roles")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserResponse> updateRoles(@PathVariable Long id,
+                                                    @Valid @RequestBody UpdateRolesRequest request) {
+        return ResponseEntity.ok(
+                userService.updateRoles(currentUser.requireCurrentUser(), id, request.getRoles()));
+    }
+
+    /**
+     * PUT /api/v1/users/{id}/status
+     *
+     * Bloquea (BLOCKED) o reactiva (ACTIVE) otra cuenta. Es PUT por lo mismo que
+     * la cotizacion de un activo: hay un solo estado y esto lo reemplaza.
+     */
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserResponse> updateStatus(@PathVariable Long id,
+                                                     @Valid @RequestBody UpdateStatusRequest request) {
+        return ResponseEntity.ok(
+                userService.updateStatus(currentUser.requireCurrentUser(), id, request.getStatus()));
     }
 
 }

@@ -5,11 +5,12 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDateTime;
 import lombok.*;
 
 /**
- * Curated catalogue of tradable assets. Only active assets are sent to the
- * price provider in the scheduled batch refresh.
+ * Catalogue of tradable assets: the US equity universe synced from Alpaca plus
+ * any asset an admin adds by hand (see AssetSource).
  */
 @Entity
 @Table(
@@ -32,9 +33,10 @@ public class Asset {
     @Column(nullable = false, length = 15)
     private String symbol;
 
+    /** Provider names reach 229 characters ("... Common Stock", fund names). */
     @NotBlank
-    @Size(max = 120)
-    @Column(nullable = false, length = 120)
+    @Size(max = 255)
+    @Column(nullable = false, length = 255)
     private String name;
 
     @NotNull
@@ -56,6 +58,25 @@ public class Asset {
     @Column(nullable = false)
     @Builder.Default
     private Boolean active = Boolean.TRUE;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private AssetSource source = AssetSource.MANUAL;
+
+    /** Listing venue as the provider reports it (NASDAQ, NYSE, ARCA...). Null for manual assets. */
+    @Size(max = 20)
+    @Column(length = 20)
+    private String exchange;
+
+    /**
+     * Last time the daily history was checked against the provider. Kept so a
+     * chart viewed on a weekend does not ask the provider again on every load
+     * for bars that cannot exist yet.
+     */
+    @Column(name = "history_synced_at")
+    private LocalDateTime historySyncedAt;
 
     /** Identity is the primary key; two unsaved instances are only equal to themselves. */
     @Override

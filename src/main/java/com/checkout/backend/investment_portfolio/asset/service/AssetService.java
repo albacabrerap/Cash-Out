@@ -9,20 +9,27 @@ import com.checkout.backend.investment_portfolio.asset.history.dto.AssetPriceRes
 import com.checkout.backend.investment_portfolio.asset.history.model.AssetPriceHistory;
 import com.checkout.backend.investment_portfolio.asset.history.repository.AssetPriceHistoryRepository;
 import com.checkout.backend.investment_portfolio.asset.model.Asset;
+import com.checkout.backend.investment_portfolio.asset.model.AssetType;
 import com.checkout.backend.investment_portfolio.asset.quote.dto.AssetQuoteResponse;
 import com.checkout.backend.investment_portfolio.asset.quote.model.AssetQuote;
 import com.checkout.backend.investment_portfolio.asset.quote.repository.AssetQuoteRepository;
 import com.checkout.backend.investment_portfolio.asset.repository.AssetRepository;
+import com.checkout.backend.market.MarketProperties;
+import com.checkout.backend.web.PageResponse;
+import com.checkout.backend.web.SearchTerm;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.modelmapper.ModelMapper;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,36 +43,43 @@ import org.springframework.transaction.annotation.Transactional;
  * valora la cartera de todos. Quien pueda escribirlo puede inflar el valor de su
  * propia posicion o hundir la de otro.
  *
- * En un sistema real ese precio lo traeria un proveedor externo y ni siquiera
- * habria endpoint de escritura. Mientras el simulador no tenga esa fuente, la
- * escritura queda reservada a administracion.
+ * La mayoria de los activos vienen de Alpaca (ver AssetSource) y su precio lo
+ * pone el mercado: para ellos no hay escritura de precio. Los que un ADMIN carga
+ * a mano conservan el endpoint de escritura.
  */
 @Service
 public class AssetService {
 
     /**
-     * Cuanto puede envejecer una cotizacion antes de dejar de servir para operar.
+     * Cuanto puede envejecer la cotizacion de un activo manual antes de dejar de
+     * servir para operar.
      *
-     * Siete dias es holgado a proposito: en este simulador los precios los carga
-     * un ADMIN a mano, no un proveedor en tiempo real, asi que un umbral corto
-     * dejaria el modulo inutilizable un lunes por la manana. Lo que esto corta es
-     * el caso que si importa, que es operar contra un precio de hace meses.
+     * Siete dias es holgado a proposito: esos precios los carga un ADMIN a mano,
+     * asi que un umbral corto dejaria el activo inoperable un lunes por la manana.
+     * Lo que esto corta es operar contra un precio de hace meses. Los activos del
+     * proveedor usan market.trading-quote-max-age, mucho mas corto.
      */
-    private static final Duration MAX_QUOTE_AGE = Duration.ofDays(7);
+    private static final Duration MANUAL_QUOTE_MAX_AGE = Duration.ofDays(7);
 
     private final AssetRepository assetRepository;
     private final AssetQuoteRepository quoteRepository;
     private final AssetPriceHistoryRepository historyRepository;
     private final ModelMapper mapper;
+    private final Clock clock;
+    private final MarketProperties market;
 
     public AssetService(AssetRepository assetRepository,
                         AssetQuoteRepository quoteRepository,
                         AssetPriceHistoryRepository historyRepository,
-                        ModelMapper mapper) {
+                        ModelMapper mapper,
+                        Clock clock,
+                        MarketProperties market) {
         this.assetRepository = assetRepository;
         this.quoteRepository = quoteRepository;
         this.historyRepository = historyRepository;
         this.mapper = mapper;
+        this.clock = clock;
+        this.market = market;
     }
 
     // ------------------------------------------------------------------
@@ -73,24 +87,46 @@ public class AssetService {
     // ------------------------------------------------------------------
 
     /**
-     * Activos operables.
+     * Activos operables, paginados y con busqueda por simbolo o nombre.
      *
-     * Los dados de baja no aparecen, pero siguen en la tabla porque las
-     * posiciones y las ordenes historicas los referencian.
+     * Con el universo del proveedor son unas 14 mil filas: devolverlas todas en
+     * un arreglo, como antes, eran megas en cada pedido. Los dados de baja no
+     * aparecen, pero siguen en la tabla porque posiciones y ordenes los
+     * referencian.
      */
     @Transactional(readOnly = true)
-    public List<AssetResponse> listActive() {
-        return assetRepository.findByActiveTrueOrderBySymbolAsc().stream()
-                .map(asset -> mapper.map(asset, AssetResponse.class))
-                .toList();
+    public PageResponse<AssetResponse> searchActive(String search, AssetType type, String letter, Pageable pageable) {
+        return search(false, search, type, letter, pageable);
     }
 
+    /** Lo mismo, incluidos los dados de baja. Solo para administracion. */
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
-    public List<AssetResponse> listAll() {
-        return assetRepository.findAll().stream()
-                .map(asset -> mapper.map(asset, AssetResponse.class))
-                .toList();
+    public PageResponse<AssetResponse> searchAll(String search, AssetType type, String letter, Pageable pageable) {
+        return search(true, search, type, letter, pageable);
+    }
+
+    /**
+     * {@code letter} es para saltar a una letra del catalogo, que esta ordenado
+     * por simbolo: filtra los que empiezan con ella. Una sola letra de la A a la Z;
+     * la busqueda por texto ya cubre el resto.
+     */
+    private PageResponse<AssetResponse> search(boolean includeInactive, String search, AssetType type,
+                                               String letter, Pageable pageable) {
+        String startsWith = null;
+        if (letter != null && !letter.isBlank()) {
+            if (!letter.strip().matches("[A-Za-z]")) {
+                throw new InvalidRequestException("La letra tiene que ser una sola, de la A a la Z.");
+            }
+            startsWith = letter.strip().toLowerCase(Locale.ROOT) + "%";
+        }
+        String pattern = SearchTerm.toLikePattern(search);
+        String exact = pattern == null ? "" : search.strip().toLowerCase(Locale.ROOT);
+        String prefix = pattern == null ? "" : SearchTerm.toPrefixPattern(search);
+        Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        return PageResponse.of(assetRepository
+                .search(includeInactive, type, startsWith, pattern, exact, prefix, unsorted)
+                .map(asset -> mapper.map(asset, AssetResponse.class)));
     }
 
     @Transactional(readOnly = true)
@@ -156,9 +192,20 @@ public class AssetService {
     // Cotizacion viva
     // ------------------------------------------------------------------
 
+    /**
+     * La ultima cotizacion conocida, con su hora.
+     *
+     * No exige que sea reciente: para mostrar, un precio con su antiguedad es
+     * mejor que un error, y la respuesta trae updatedAt para que la pantalla lo
+     * diga. La exigencia de frescura es para operar, en requireQuote.
+     */
     @Transactional(readOnly = true)
     public AssetQuoteResponse getQuote(Long assetId) {
-        return mapper.map(requireQuote(findById(assetId)), AssetQuoteResponse.class);
+        Asset asset = findById(assetId);
+        AssetQuote quote = quoteRepository.findByAssetId(asset.getId())
+                .orElseThrow(() -> new InvalidRequestException(
+                        "El activo " + asset.getSymbol() + " todavia no tiene cotizacion."));
+        return mapper.map(quote, AssetQuoteResponse.class);
     }
 
     /**
@@ -177,13 +224,31 @@ public class AssetService {
         // Una cotizacion vieja es peor que ninguna: ejecutar una orden contra el
         // precio de la semana pasada le da al usuario un precio que no existe, y
         // lo hace sin avisar de nada. Que exista la fila no significa que sirva.
-        if (quote.getUpdatedAt().isBefore(LocalDateTime.now().minus(MAX_QUOTE_AGE))) {
+        Duration maxAge = asset.getSource().fromProvider()
+                ? market.tradingQuoteMaxAge()
+                : MANUAL_QUOTE_MAX_AGE;
+        if (quote.getUpdatedAt().isBefore(LocalDateTime.now().minus(maxAge))) {
             throw new InvalidRequestException(
                     "La cotizacion de " + asset.getSymbol() + " es del "
                             + quote.getUpdatedAt().toLocalDate()
                             + " y esta desactualizada. No se puede operar con ella.");
         }
         return quote;
+    }
+
+    /**
+     * Las cotizaciones guardadas de varios activos, para mostrar una pagina del
+     * catalogo con precios. Como en currentPrices, el activo sin precio
+     * simplemente no aparece.
+     */
+    @Transactional(readOnly = true)
+    public List<AssetQuoteResponse> getQuotes(Collection<Long> assetIds) {
+        if (assetIds.isEmpty()) {
+            return List.of();
+        }
+        return quoteRepository.findByAssetIdIn(assetIds).stream()
+                .map(quote -> mapper.map(quote, AssetQuoteResponse.class))
+                .toList();
     }
 
     /**
@@ -225,6 +290,10 @@ public class AssetService {
         }
 
         Asset asset = findById(assetId);
+        if (asset.getSource().fromProvider()) {
+            throw new InvalidRequestException(
+                    "El precio de " + asset.getSymbol() + " lo da el mercado; no se puede fijar a mano.");
+        }
         AssetQuote quote = quoteRepository.findByAssetId(assetId).orElse(null);
 
         if (quote == null) {
@@ -237,7 +306,7 @@ public class AssetService {
             BigDecimal previous = quote.getPrice();
             quote.setPreviousClose(previous);
             quote.setPrice(price);
-            quote.setChangePercent(percentChange(previous, price));
+            quote.setChangePercent(AssetQuote.percentChange(previous, price));
             quote.setUpdatedAt(LocalDateTime.now());
         }
 
@@ -255,7 +324,7 @@ public class AssetService {
      * comportamiento correcto para un cierre.
      */
     private void recordDailyClose(Asset asset, BigDecimal price) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         historyRepository.findByAssetIdAndDateBetweenOrderByDateAsc(asset.getId(), today, today)
                 .stream()
@@ -267,15 +336,6 @@ public class AssetService {
                                 .date(today)
                                 .closePrice(price)
                                 .build()));
-    }
-
-    private static BigDecimal percentChange(BigDecimal previous, BigDecimal current) {
-        if (previous == null || previous.signum() == 0) {
-            return null;
-        }
-        return current.subtract(previous)
-                .multiply(BigDecimal.valueOf(100))
-                .divide(previous, 4, RoundingMode.HALF_UP);
     }
 
     // ------------------------------------------------------------------

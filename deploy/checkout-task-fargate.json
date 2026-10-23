@@ -1,0 +1,100 @@
+{
+  "family": "checkout-task",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "executionRoleArn": "arn:aws:iam::766753106978:role/LabRole",
+  "taskRoleArn": "arn:aws:iam::766753106978:role/LabRole",
+  "containerDefinitions": [
+    {
+      "name": "checkout-app",
+      "image": "766753106978.dkr.ecr.us-east-1.amazonaws.com/checkout-app:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "name": "http",
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "environment": [
+        {
+          "name": "DB_HOST",
+          "value": "RELLENAR.us-east-1.rds.amazonaws.com"
+        },
+        {
+          "name": "DB_PORT",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "checkout"
+        },
+        {
+          "name": "DB_USER",
+          "value": "postgres"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "value": "RELLENAR"
+        },
+        {
+          "name": "JWT_SECRET",
+          "value": "RELLENAR-minimo-32-caracteres"
+        },
+        {
+          "name": "JWT_EXPIRATION_ACCESS",
+          "value": "PT15M"
+        },
+        {
+          "name": "JWT_EXPIRATION_REFRESH",
+          "value": "P30D"
+        },
+        {
+          "name": "SPRING_PROFILES_ACTIVE",
+          "value": ""
+        },
+        {
+          "name": "CORS_ALLOWED_ORIGINS",
+          "value": "https://RELLENAR-dominio-del-frontend"
+        },
+        {
+          "name": "ALPACA_API_KEY",
+          "value": "RELLENAR"
+        },
+        {
+          "name": "ALPACA_API_SECRET",
+          "value": "RELLENAR"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget -q -S --spider http://localhost:8080/api/v1/auth/login 2>&1 | grep -q 'HTTP/' || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/checkout-task",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

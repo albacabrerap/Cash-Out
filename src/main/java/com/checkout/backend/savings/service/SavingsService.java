@@ -2,12 +2,13 @@ package com.checkout.backend.savings.service;
 
 import com.checkout.backend.exceptions.InvalidRequestException;
 import com.checkout.backend.savings.dto.SavingsResponse;
-import com.checkout.backend.savings.goal.model.GoalStatus;
 import com.checkout.backend.savings.goal.repository.SavingsGoalRepository;
 import com.checkout.backend.savings.model.Savings;
 import com.checkout.backend.savings.repository.SavingsRepository;
 import com.checkout.backend.user.model.User;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,13 +36,16 @@ public class SavingsService {
     private final SavingsRepository savingsRepository;
     private final SavingsGoalRepository goalRepository;
     private final ModelMapper mapper;
+    private final Clock clock;
 
     public SavingsService(SavingsRepository savingsRepository,
                           SavingsGoalRepository goalRepository,
-                          ModelMapper mapper) {
+                          ModelMapper mapper,
+                          Clock clock) {
         this.savingsRepository = savingsRepository;
         this.goalRepository = goalRepository;
         this.mapper = mapper;
+        this.clock = clock;
     }
 
     /**
@@ -79,15 +83,15 @@ public class SavingsService {
     }
 
     /**
-     * Lo comprometido en metas que siguen vivas.
+     * Lo comprometido en metas que siguen vivas: en curso y sin vencer.
      *
-     * Solo cuentan las IN_PROGRESS: el dinero de una meta cumplida ya se
-     * considera gastado en su objetivo, y el de una vencida vuelve a estar
-     * disponible.
+     * El de una meta cumplida deja de estar comprometido y vuelve al disponible:
+     * la meta se cumplio, y gastar ese dinero en su objetivo es un gasto aparte.
+     * El de una vencida tambien vuelve al disponible.
      */
     @Transactional(readOnly = true)
     public BigDecimal committedAmount(User user) {
-        return goalRepository.sumAccumulatedByUserIdAndStatus(user.getId(), GoalStatus.IN_PROGRESS);
+        return goalRepository.sumCommittedByUserId(user.getId(), LocalDate.now(clock));
     }
 
     /**

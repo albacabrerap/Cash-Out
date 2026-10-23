@@ -11,6 +11,7 @@ import com.checkout.backend.savings.goal.repository.SavingsGoalRepository;
 import com.checkout.backend.user.model.User;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import org.modelmapper.ModelMapper;
@@ -40,10 +41,12 @@ public class SavingsGoalService {
 
     private final SavingsGoalRepository goalRepository;
     private final ModelMapper mapper;
+    private final Clock clock;
 
-    public SavingsGoalService(SavingsGoalRepository goalRepository, ModelMapper mapper) {
+    public SavingsGoalService(SavingsGoalRepository goalRepository, ModelMapper mapper, Clock clock) {
         this.goalRepository = goalRepository;
         this.mapper = mapper;
+        this.clock = clock;
     }
 
     /**
@@ -154,9 +157,9 @@ public class SavingsGoalService {
         }
     }
 
-    private static boolean isExpired(SavingsGoal goal) {
+    private boolean isExpired(SavingsGoal goal) {
         return goal.getStatus() == GoalStatus.IN_PROGRESS
-                && goal.getDeadline().isBefore(LocalDate.now());
+                && goal.getDeadline().isBefore(LocalDate.now(clock));
     }
 
     /**

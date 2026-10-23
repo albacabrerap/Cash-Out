@@ -282,6 +282,15 @@ class SavingsApiFlowTest {
                 .andExpect(jsonPath("$.progressPercent").value(33.33));
     }
 
+    @Test
+    @DisplayName("La meta dice cuando se creo, para medir el avance contra el plazo")
+    void goalExposesCreationDate() throws Exception {
+        long goalId = createGoal("Viaje", "300.00", LocalDate.now().plusMonths(6));
+
+        mockMvc.perform(get("/api/v1/savings-goals/" + goalId))
+                .andExpect(jsonPath("$.createdAt").isNotEmpty());
+    }
+
     // ------------------------------------------------------------------
     // Aislamiento entre usuarios
     // ------------------------------------------------------------------

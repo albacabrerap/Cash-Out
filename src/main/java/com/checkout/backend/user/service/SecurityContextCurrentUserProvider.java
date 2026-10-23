@@ -4,6 +4,7 @@ import com.checkout.backend.exceptions.UnauthenticatedException;
 import com.checkout.backend.security.JwtPrincipal;
 import com.checkout.backend.security.UserPrincipal;
 import com.checkout.backend.user.model.User;
+import com.checkout.backend.user.model.UserStatus;
 import com.checkout.backend.user.repository.UserRepository;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -54,14 +55,27 @@ public class SecurityContextCurrentUserProvider implements CurrentUserProvider {
         // secundario, y es lo que hace que ese claim no sea decorativo.
         if (authentication.getPrincipal() instanceof JwtPrincipal jwtPrincipal
                 && jwtPrincipal.id() != null) {
-            return userRepository.findById(jwtPrincipal.id())
-                    .orElseThrow(() -> new UnauthenticatedException("La sesion ya no es valida."));
+            return requireActive(userRepository.findById(jwtPrincipal.id())
+                    .orElseThrow(() -> new UnauthenticatedException("La sesion ya no es valida.")));
         }
 
-        return userRepository.findByEmail(authentication.getName())
+        return requireActive(userRepository.findByEmail(authentication.getName())
                 // El token es valido pero el usuario ya no existe. Es 401 y no
                 // 404: el recurso que falta es la identidad, no lo que se pidio.
-                .orElseThrow(() -> new UnauthenticatedException("La sesion ya no es valida."));
+                .orElseThrow(() -> new UnauthenticatedException("La sesion ya no es valida.")));
+    }
+
+    /**
+     * El token sigue firmado aunque la cuenta se haya bloqueado o dado de baja
+     * despues de emitirlo. Como aqui ya se carga la fila, comprobar el estado no
+     * cuesta otra consulta y corta el acceso en la siguiente peticion, en vez de
+     * esperar a que el token expire.
+     */
+    private static User requireActive(User user) {
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new UnauthenticatedException("Tu cuenta no esta activa.");
+        }
+        return user;
     }
 
 }

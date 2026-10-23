@@ -54,6 +54,15 @@
           Remove this line once a Boot release ships 11.0.25 or later.
         -->
         <tomcat.version>11.0.25</tomcat.version>
+
+        <!--
+          The tests run in the business time zone (app.time-zone). Many build
+          their data with LocalDate.now(), and if the JVM ran in UTC while the
+          app decides "today" in Lima, they would fail every night between
+          19:00 and midnight Lima time. Surefire reads this property; it can be
+          overridden from the command line, e.g. -DargLine=-Duser.timezone=UTC.
+        -->
+        <argLine>-Duser.timezone=America/Lima</argLine>
     </properties>
     <dependencies>
         <dependency>

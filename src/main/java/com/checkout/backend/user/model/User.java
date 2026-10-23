@@ -88,6 +88,10 @@ public class User {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /** Cuando cambio la foto de perfil, en UTC; null si no tiene. Los bytes viven en UserAvatar. */
+    @Column(name = "avatar_updated_at")
+    private LocalDateTime avatarUpdatedAt;
+
     /** Identity is the primary key; two unsaved instances are only equal to themselves. */
     @Override
     public boolean equals(Object o) {

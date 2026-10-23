@@ -40,4 +40,7 @@ public class UserResponse {
 
     private LocalDateTime createdAt;
 
+    /** null si no tiene foto; si cambia, la foto que tenia el cliente ya no vale. */
+    private LocalDateTime avatarUpdatedAt;
+
 }

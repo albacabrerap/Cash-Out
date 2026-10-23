@@ -19,6 +19,8 @@ public class PositionResponse {
 
     private Long id;
 
+    private Long assetId;
+
     private String symbol;
 
     private String assetName;
