@@ -43,4 +43,13 @@ public class UserResponse {
     /** null si no tiene foto; si cambia, la foto que tenia el cliente ya no vale. */
     private LocalDateTime avatarUpdatedAt;
 
+    /** Creada con Google: solo entra con Google y no hay contrasena que cambiar. */
+    private boolean googleOnly;
+
+    /** La cuenta entra con "Continuar con Google". */
+    private boolean googleLinked;
+
+    /** Confirmo su correo. */
+    private boolean emailVerified;
+
 }

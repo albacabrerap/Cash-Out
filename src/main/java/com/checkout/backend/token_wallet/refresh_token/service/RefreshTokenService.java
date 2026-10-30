@@ -2,15 +2,12 @@ package com.checkout.backend.token_wallet.refresh_token.service;
 
 import com.checkout.backend.exceptions.UnauthenticatedException;
 import com.checkout.backend.security.JwtProperties;
+import com.checkout.backend.security.OpaqueTokens;
 import com.checkout.backend.token_wallet.refresh_token.model.RefreshToken;
 import com.checkout.backend.token_wallet.refresh_token.repository.RefreshTokenRepository;
 import com.checkout.backend.user.model.User;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -57,13 +54,11 @@ public class RefreshTokenService {
      */
     @Transactional
     public String issue(User user) {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        random.nextBytes(bytes);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String token = OpaqueTokens.generate(random, TOKEN_BYTES);
 
         refreshTokenRepository.save(RefreshToken.builder()
                 .user(user)
-                .tokenHash(hash(token))
+                .tokenHash(OpaqueTokens.hash(token))
                 .expiresAt(LocalDateTime.now().plus(properties.expirationRefresh()))
                 .build());
 
@@ -96,7 +91,7 @@ public class RefreshTokenService {
      */
     @Transactional
     public User rotate(String presentedToken) {
-        RefreshToken stored = refreshTokenRepository.findByTokenHash(hash(presentedToken))
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(OpaqueTokens.hash(presentedToken))
                 .orElseThrow(() -> new UnauthenticatedException("El token de refresco no es valido."));
 
         if (stored.getRevokedAt() != null) {
@@ -134,7 +129,7 @@ public class RefreshTokenService {
      */
     @Transactional
     public void revoke(String presentedToken) {
-        refreshTokenRepository.findByTokenHash(hash(presentedToken))
+        refreshTokenRepository.findByTokenHash(OpaqueTokens.hash(presentedToken))
                 .filter(token -> token.getRevokedAt() == null)
                 .ifPresent(token -> token.setRevokedAt(LocalDateTime.now()));
     }
@@ -143,28 +138,6 @@ public class RefreshTokenService {
     @Transactional
     public int revokeAll(User user) {
         return refreshTokenRepository.revokeAllByUserId(user.getId(), LocalDateTime.now());
-    }
-
-    /**
-     * SHA-256 en hexadecimal.
-     *
-     * El algoritmo esta en toda JVM, asi que la excepcion declarada no puede
-     * ocurrir; se convierte en un error de estado para no obligar a cada llamada
-     * a atrapar algo imposible.
-     */
-    private static String hash(String token) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(token.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
-                hex.append(Character.forDigit(b & 0xF, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 no esta disponible en esta JVM", ex);
-        }
     }
 
 }

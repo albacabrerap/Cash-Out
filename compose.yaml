@@ -123,6 +123,13 @@ services:
       # dependa de Alpaca responde 503. Nunca van al frontend.
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+
+      # Donde abre el enlace del correo de verificacion.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      # En local no suele haber SMTP: el enlace se intenta mandar, pero no se
+      # exige para entrar. En produccion va en true.
+      REQUIRE_VERIFIED_EMAIL: ${REQUIRE_VERIFIED_EMAIL:-false}
 
 volumes:
   checkout-postgres-data:

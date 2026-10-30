@@ -42,10 +42,21 @@ public class User {
     @Column(nullable = false, length = 180)
     private String email;
 
-    /** BCrypt hash. The plain password never reaches this entity. */
-    @NotBlank
-    @Column(name = "password_hash", nullable = false, length = 100)
+    /**
+     * BCrypt hash. The plain password never reaches this entity. null en una
+     * cuenta creada con Google: esa cuenta solo entra con Google.
+     */
+    @Column(name = "password_hash", length = 100)
     private String passwordHash;
+
+    /** El "sub" de Google si la cuenta se enlazo con "Continuar con Google". */
+    @Column(name = "google_subject", unique = true)
+    private String googleSubject;
+
+    /** Confirmo su correo con el enlace, o entro con Google, que ya lo confirmo. */
+    @Column(name = "email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
 
     /**
      * Stored in the user_roles table. A user starts with ROLE USER and an
@@ -105,4 +116,14 @@ public class User {
     public int hashCode() {
         return User.class.hashCode();
     }
+
+    /** Para UserResponse: creada con Google, sin contrasena; la web no ofrece cambiarla. */
+    public boolean getGoogleOnly() {
+        return passwordHash == null;
+    }
+
+    public boolean getGoogleLinked() {
+        return googleSubject != null;
+    }
+
 }
