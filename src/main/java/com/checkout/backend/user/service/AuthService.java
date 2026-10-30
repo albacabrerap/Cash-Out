@@ -1,5 +1,10 @@
 package com.checkout.backend.user.service;
 
+import com.checkout.backend.exceptions.ForbiddenException;
+import com.checkout.backend.exceptions.UnauthenticatedException;
+import com.checkout.backend.security.google.GoogleIdentity;
+import com.checkout.backend.security.google.GoogleTokenVerifier;
+import java.util.Locale;
 import com.checkout.backend.exceptions.DuplicateResourceException;
 import com.checkout.backend.investment_portfolio.service.PortfolioService;
 import com.checkout.backend.savings.service.SavingsService;
@@ -14,6 +19,7 @@ import com.checkout.backend.user.model.Role;
 import com.checkout.backend.user.model.User;
 import com.checkout.backend.user.model.UserStatus;
 import com.checkout.backend.user.repository.UserRepository;
+import com.checkout.backend.user.verification.EmailVerificationService;
 import java.util.EnumSet;
 import org.modelmapper.ModelMapper;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -45,6 +51,8 @@ public class AuthService {
     private final SavingsService savingsService;
     private final PortfolioService portfolioService;
     private final ModelMapper mapper;
+    private final GoogleTokenVerifier googleVerifier;
+    private final EmailVerificationService emailVerification;
 
     public AuthService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
@@ -54,7 +62,9 @@ public class AuthService {
                        TokenWalletService walletService,
                        SavingsService savingsService,
                        PortfolioService portfolioService,
-                       ModelMapper mapper) {
+                       ModelMapper mapper,
+                       GoogleTokenVerifier googleVerifier,
+                       EmailVerificationService emailVerification) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -64,10 +74,14 @@ public class AuthService {
         this.savingsService = savingsService;
         this.portfolioService = portfolioService;
         this.mapper = mapper;
+        this.googleVerifier = googleVerifier;
+        this.emailVerification = emailVerification;
     }
 
     /**
-     * Da de alta un usuario y lo deja con la sesion iniciada.
+     * Da de alta un usuario y le manda el enlace para confirmar su correo. Si
+     * la confirmacion es obligatoria, responde sin tokens: entra al abrir el
+     * enlace. Si no, lo deja con la sesion iniciada.
      *
      * El rol y el estado los pone el servidor, no el cuerpo de la peticion.
      * RegisterUserRequest no expone esos campos justamente para que nadie pueda
@@ -105,11 +119,86 @@ public class AuthService {
         // un usuario recien creado sea completo en vez de depender de por donde
         // entre primero. Si falla cualquiera de las tres, no queda usuario a medias:
         // es una sola transaccion.
+        createAccounts(user);
+        emailVerification.send(user);
+        if (emailVerification.required()) {
+            return AuthResponse.builder()
+                    .user(mapper.map(user, UserResponse.class))
+                    .emailVerificationRequired(true)
+                    .build();
+        }
+        return buildAuthResponse(user);
+    }
+
+    /**
+     * Entra, o se registra, con la cuenta de Google.
+     *
+     * La cuenta se busca primero por el "sub" de Google, que no cambia. Si no
+     * hay, por el correo: alguien que ya se registro con contrasena queda
+     * enlazado en vez de recibir un 409. Eso solo se hace con un correo que
+     * Google confirma como verificado; si no, cualquiera podria apropiarse de
+     * una cuenta poniendo un correo ajeno en su cuenta de Google.
+     *
+     * La cuenta nueva no tiene contrasena: Google no la comparte, asi que solo
+     * entra con Google. La que ya tenia contrasena la conserva y suma Google.
+     */
+    @Transactional
+    public AuthResponse loginWithGoogle(String credential) {
+        GoogleIdentity google = googleVerifier.verify(credential);
+        if (!google.emailVerified() || google.email() == null) {
+            throw new UnauthenticatedException("Google no confirmó tu correo. Verifícalo en tu cuenta de Google o regístrate con contraseña.");
+        }
+
+        User user = userRepository.findByGoogleSubject(google.subject())
+                .or(() -> userRepository.findByEmailIgnoreCase(google.email()).map(this::linkGoogle))
+                .orElseGet(() -> registerFromGoogle(google));
+        if (user.getGoogleSubject() == null) {
+            user.setGoogleSubject(google.subject());
+        }
+
+        // Lo mismo que el login con contrasena: una cuenta bloqueada o dada de baja no entra.
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new UnauthenticatedException("Credenciales inválidas.");
+        }
+        return buildAuthResponse(user);
+    }
+
+    /**
+     * Enlaza Google a una cuenta que ya existia con ese correo. Si esa cuenta
+     * nunca confirmo el correo, quien la creo pudo ser otra persona usando un
+     * correo ajeno, con una contrasena que conoce. Google acaba de probar quien
+     * es el dueño: se borra esa contrasena y se cierran sus sesiones, y la
+     * cuenta queda solo con Google.
+     */
+    private User linkGoogle(User existing) {
+        if (!existing.isEmailVerified()) {
+            existing.setPasswordHash(null);
+            refreshTokenService.revokeAll(existing);
+            existing.setEmailVerified(true);
+        }
+        return existing;
+    }
+
+    private User registerFromGoogle(GoogleIdentity google) {
+        String name = google.name() == null || google.name().isBlank()
+                ? google.email().substring(0, google.email().indexOf('@'))
+                : google.name().strip();
+        User user = userRepository.save(User.builder()
+                .name(name.length() > 120 ? name.substring(0, 120) : name)
+                .email(google.email().toLowerCase(Locale.ROOT))
+                .googleSubject(google.subject())
+                .emailVerified(true)
+                .roles(EnumSet.of(Role.USER))
+                .status(UserStatus.ACTIVE)
+                .build());
+        createAccounts(user);
+        return user;
+    }
+
+    private void createAccounts(User user) {
         walletService.getOrCreate(user);
         savingsService.getOrCreate(user);
         portfolioService.getOrCreate(user);
-
-        return buildAuthResponse(user);
     }
 
     /**
@@ -130,7 +219,29 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
 
         User user = userRepository.findByEmail(authentication.getName()).orElseThrow();
+        // Despues de comprobar la contrasena: asi este 403 no revela que correos estan registrados.
+        if (emailVerification.required() && !user.isEmailVerified()) {
+            throw new ForbiddenException("Confirma tu correo para entrar: abre el enlace que te enviamos.");
+        }
         return buildAuthResponse(user);
+    }
+
+    /** Abre el enlace del correo: confirma la cuenta y deja la sesion iniciada. */
+    @Transactional
+    public AuthResponse verifyEmail(String token) {
+        User user = emailVerification.verify(token);
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new UnauthenticatedException("Credenciales inválidas.");
+        }
+        return buildAuthResponse(user);
+    }
+
+    /** Manda otro enlace. No avisa si el correo no existe o ya esta confirmado, para no revelarlo. */
+    @Transactional
+    public void resendVerification(String email) {
+        userRepository.findByEmailIgnoreCase(email)
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .ifPresent(emailVerification::send);
     }
 
     /**

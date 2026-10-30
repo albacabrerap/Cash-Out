@@ -81,6 +81,9 @@ public class UserService {
      */
     @Transactional
     public void changePassword(User user, ChangePasswordRequest request) {
+        if (user.getPasswordHash() == null) {
+            throw new InvalidRequestException("Tu cuenta entra con Google y no tiene contraseña que cambiar.");
+        }
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new UnauthenticatedException("La contrasena actual no es correcta.");
         }

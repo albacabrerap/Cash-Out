@@ -17,6 +17,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -48,12 +52,15 @@ public class SecurityConfig {
     private static final String[] PUBLIC_PATHS = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
+            "/api/v1/auth/google",
             "/api/v1/auth/refresh",
             // Publico a proposito: el token de refresco que va en el cuerpo ES
             // la credencial. Exigir ademas un token de acceso valido impediria
             // cerrar sesion justo cuando mas hace falta, con la sesion ya
             // caducada, y dejaria el refresh token vivo hasta su expiracion.
             "/api/v1/auth/logout",
+            "/api/v1/auth/verify-email",
+            "/api/v1/auth/resend-verification",
             "/",
             "/api/v1/health",
             "/v3/api-docs/**",
@@ -101,7 +108,22 @@ public class SecurityConfig {
                         // El SSE de precios en vivo termina en un despacho ASYNC que
                         // ya no trae el token; la peticion original si se autentico.
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
-                        .anyRequest().authenticated())
+                        // GUEST es de solo lectura: puede mirar todo lo suyo, pero
+                        // cualquier escritura exige USER o ADMIN.
+                        .requestMatchers(HttpMethod.GET, "/**").authenticated()
+                        .requestMatchers(HttpMethod.HEAD, "/**").authenticated()
+                        .anyRequest().hasAnyRole("USER", "ADMIN"))
+
+                // La API solo devuelve JSON: ningun navegador la carga como
+                // pagina ni la mete en un iframe. La CSP va solo en /api para
+                // no romper Swagger cuando se activa en desarrollo. HSTS lo
+                // agrega Spring cuando la peticion llego por HTTPS, tambien
+                // detras del balanceador gracias a server.forward-headers-strategy.
+                .headers(headers -> headers
+                        .addHeaderWriter(new DelegatingRequestMatcherHeaderWriter(
+                                PathPatternRequestMatcher.withDefaults().matcher("/api/**"),
+                                new StaticHeadersWriter("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")))
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)))
 
                 // Sin estas dos lineas, un 401 o un 403 de la cadena de filtros
                 // saldrian con el formato de error del contenedor y no con el de
@@ -155,7 +177,7 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", RefreshCookie.MODE_HEADER));
         // Location viaja en los 201 y el navegador no la expone salvo que se
         // declare aqui.
         configuration.setExposedHeaders(List.of("Location"));

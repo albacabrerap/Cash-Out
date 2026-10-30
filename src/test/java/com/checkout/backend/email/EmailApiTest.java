@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -78,6 +79,10 @@ class EmailApiTest {
                 .andReturn().getResponse().getContentAsString();
 
         token = JSON.readTree(body).get("accessToken").asString();
+        // Registrarse manda el correo de verificacion en segundo plano: se espera
+        // y se olvida, para que cada test cuente solo sus propios envios.
+        verify(mailSender, timeout(3000)).send(any(SimpleMailMessage.class));
+        clearInvocations(mailSender);
     }
 
     // ------------------------------------------------------------------

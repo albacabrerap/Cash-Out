@@ -44,14 +44,6 @@
           "value": "postgres"
         },
         {
-          "name": "DB_PASSWORD",
-          "value": "RELLENAR"
-        },
-        {
-          "name": "JWT_SECRET",
-          "value": "RELLENAR-minimo-32-caracteres"
-        },
-        {
           "name": "JWT_EXPIRATION_ACCESS",
           "value": "PT15M"
         },
@@ -68,12 +60,24 @@
           "value": "https://RELLENAR-dominio-del-frontend"
         },
         {
-          "name": "ALPACA_API_KEY",
-          "value": "RELLENAR"
+          "name": "FRONTEND_URL",
+          "value": "https://RELLENAR-dominio-del-frontend"
         },
         {
-          "name": "ALPACA_API_SECRET",
-          "value": "RELLENAR"
+          "name": "REQUIRE_VERIFIED_EMAIL",
+          "value": "true"
+        },
+        {
+          "name": "REFRESH_COOKIE_SECURE",
+          "value": "true"
+        },
+        {
+          "name": "SWAGGER_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "GOOGLE_CLIENT_ID",
+          "value": "RELLENAR.apps.googleusercontent.com"
         }
       ],
       "healthCheck": {
@@ -94,7 +98,33 @@
           "awslogs-stream-prefix": "ecs",
           "awslogs-create-group": "true"
         }
-      }
+      },
+      "secrets": [
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/DB_PASSWORD"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/JWT_SECRET"
+        },
+        {
+          "name": "ALPACA_API_KEY",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/ALPACA_API_KEY"
+        },
+        {
+          "name": "ALPACA_API_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/ALPACA_API_SECRET"
+        },
+        {
+          "name": "MAIL_USERNAME",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/MAIL_USERNAME"
+        },
+        {
+          "name": "MAIL_PASSWORD",
+          "valueFrom": "arn:aws:ssm:us-east-1:766753106978:parameter/checkout/MAIL_PASSWORD"
+        }
+      ]
     }
   ]
 }
