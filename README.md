@@ -35,7 +35,7 @@
 
 Muchas personas jóvenes llegan a su primer sueldo sin haber manejado antes un
 presupuesto propio, y aprenden a invertir arriesgando dinero
-real desde el primer momento. _Check-Out / Cash-Out_ busca separar esas dos
+real desde el primer momento. Cash-Out_ busca separar esas dos
 etapas: primero, que el usuario entienda y controle sus finanzas reales y, en base a ello, invertir en un
 entorno donde el riesgo son fichas de un juego y no su sueldo.
 
